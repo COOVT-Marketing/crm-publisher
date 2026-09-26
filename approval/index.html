@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vocal Tech Marketing Bidding Portal</title>
+  <style>
+    :root {
+      --primary: #548888;
+      --primary-dark: #3d6666;
+      --primary-light: #e8f2f2;
+      --bg: #f7f9fa;
+      --card: #ffffff;
+      --text: #1a2a2a;
+      --muted: #5a6a6a;
+      --border: #d0dcdc;
+      --success: #2e7d4f;
+      --shadow: 0 4px 20px rgba(84, 136, 136, 0.12);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #e8f2f2 0%, #f7f9fa 100%);
+      padding: 20px;
+    }
+
+    .login-card {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .login-logo {
+      width: 72px;
+      height: 72px;
+      background: var(--primary-light);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      overflow: hidden;
+    }
+
+    .login-logo img {
+      max-width: 56px;
+      max-height: 56px;
+      object-fit: contain;
+    }
+
+    .login-logo .placeholder {
+      font-size: 28px;
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .login-card h1 {
+      font-size: 1.35rem;
+      color: var(--primary);
+      margin-bottom: 6px;
+    }
+
+    .login-card p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 28px;
+    }
+
+    .form-group {
+      text-align: left;
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      width: 100%;
+    }
+
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .error-msg {
+      color: #c0392b;
+      font-size: 0.9rem;
+      margin-top: 12px;
+      display: none;
+    }
+
+    #portal {
+      display: none;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid var(--primary-light);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      background: var(--primary-light);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .brand-logo img {
+      max-width: 36px;
+      max-height: 36px;
+      object-fit: contain;
+    }
+
+    .brand-logo .placeholder {
+      font-size: 18px;
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .brand h1 {
+      font-size: 1.4rem;
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .brand span {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .logout-btn {
+      background: transparent;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .logout-btn:hover { background: var(--primary-light); }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+
+    .card .label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 6px;
+    }
+
+    .card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .card .sub {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: flex-end;
+      margin-bottom: 24px;
+      background: var(--card);
+      padding: 18px 20px;
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+
+    .filters .form-group {
+      margin-bottom: 0;
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .filters .form-group input { padding: 10px 12px; }
+
+    .filters .btn {
+      padding: 10px 20px;
+      white-space: nowrap;
+    }
+
+    .btn-secondary {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    .btn-secondary:hover { background: #d0e4e4; }
+
+    .table-wrap {
+      background: var(--card);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .table-header h2 {
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+
+    .table-scroll { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th {
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 16px;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tr:hover td { background: #f0f7f7; }
+
+    .payout-orig {
+      color: var(--muted);
+      text-decoration: line-through;
+      font-size: 0.85rem;
+    }
+
+    .payout-adj {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--muted);
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    @media (max-width: 600px) {
+      .brand h1 { font-size: 1.15rem; }
+      .card .value { font-size: 1.4rem; }
+      th, td { padding: 10px 12px; font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="login-screen">
+    <div class="login-card">
+      <div class="login-logo">
+        <img src="logo.png" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="placeholder" style="display:none;">VT</div>
+      </div>
+      <h1>Vocal Tech Marketing</h1>
+      <p>Bidding Portal – Secure Access</p>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter portal password" autocomplete="current-password">
+      </div>
+
+      <button class="btn btn-primary" id="login-btn" onclick="attemptLogin()">
+        Sign In
+      </button>
+      <div class="error-msg" id="login-error">Incorrect password. Please try again.</div>
+    </div>
+  </div>
+
+  <!-- PORTAL -->
+  <div id="portal">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">
+          <img src="logo.png" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div class="placeholder" style="display:none;">VT</div>
+        </div>
+        <div>
+          <h1>Vocal Tech Marketing Bidding Portal</h1>
+          <span>Live Bidding Data • Automatic Deductions Applied</span>
+        </div>
+      </div>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </header>
+
+    <div class="summary-row">
+      <div class="card">
+        <div class="label">Total Adjusted Payout</div>
+        <div class="value" id="total-adjusted">$0.00</div>
+        <div class="sub">After automatic deductions</div>
+      </div>
+      <div class="card">
+        <div class="label">Total Original Payout</div>
+        <div class="value" id="total-original" style="color:var(--muted);">$0.00</div>
+        <div class="sub">Before deductions</div>
+      </div>
+      <div class="card">
+        <div class="label">Records Shown</div>
+        <div class="value" id="record-count">0</div>
+        <div class="sub">Matching current filters</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="form-group">
+        <label for="date-from">From Date</label>
+        <input type="date" id="date-from">
+      </div>
+      <div class="form-group">
+        <label for="date-to">To Date</label>
+        <input type="date" id="date-to">
+      </div>
+      <button class="btn btn-primary" onclick="loadData()">Apply Filter</button>
+      <button class="btn btn-secondary" onclick="clearFilters()">Clear</button>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <h2>Bidding Records</h2>
+        <span id="last-updated" style="font-size:0.85rem;color:var(--muted);"></span>
+      </div>
+      <div class="table-scroll">
+        <div id="table-container">
+          <div class="loading">Loading data…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== CONFIG ==========
+    const API_URL = 'https://script.google.com/macros/s/AKfycbzJ6W0CD7GHfcyKTkmc0KF-mHQLR0Jrmyk6D33Ia637aA7lzo9BztNsTm5QMW9F_rqu/exec';
+
+    // ========== AUTH ==========
+    async function attemptLogin() {
+      const pwd = document.getElementById('password').value;
+      const btn = document.getElementById('login-btn');
+      const err = document.getElementById('login-error');
+
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      err.style.display = 'none';
+
+      try {
+        const res = await fetch(`${API_URL}?action=checkpassword&password=${encodeURIComponent(pwd)}`);
+        const data = await res.json();
+
+        if (data.success) {
+          sessionStorage.setItem('vtm_auth', '1');
+          showPortal();
+        } else {
+          err.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+        }
+      } catch (e) {
+        err.style.display = 'block';
+        err.textContent = 'Connection error. Please try again.';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    }
+
+    function showPortal() {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('portal').style.display = 'block';
+      loadData();
+    }
+
+    function logout() {
+      sessionStorage.removeItem('vtm_auth');
+      location.reload();
+    }
+
+    if (sessionStorage.getItem('vtm_auth') === '1') {
+      showPortal();
+    }
+
+    document.getElementById('password').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') attemptLogin();
+    });
+
+    // ========== DATA ==========
+    async function loadData() {
+      const from = document.getElementById('date-from').value || '';
+      const to   = document.getElementById('date-to').value || '';
+
+      document.getElementById('table-container').innerHTML = '<div class="loading">Loading latest data…</div>';
+
+      try {
+        const url = `${API_URL}?action=getdata&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        renderData(data);
+      } catch (err) {
+        document.getElementById('table-container').innerHTML =
+          '<div class="empty-state">Error loading data. Please refresh the page.</div>';
+        console.error(err);
+      }
+    }
+
+    function clearFilters() {
+      document.getElementById('date-from').value = '';
+      document.getElementById('date-to').value = '';
+      loadData();
+    }
+
+    function renderData(data) {
+      document.getElementById('total-adjusted').textContent = '$' + (data.totalAdjusted || '0.00');
+      document.getElementById('total-original').textContent = '$' + (data.totalOriginal || '0.00');
+      document.getElementById('record-count').textContent = data.count || 0;
+      document.getElementById('last-updated').textContent =
+        (data.lastSync || 'Updated') + ' • ' + new Date().toLocaleString();
+
+      if (!data.rows || data.rows.length === 0) {
+        document.getElementById('table-container').innerHTML =
+          '<div class="empty-state">No records found for the selected date range.</div>';
+        return;
+      }
+
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>ANI</th>
+              <th>State</th>
+              <th>Original Payout</th>
+              <th>Adjusted Payout</th>
+              <th>Date / Time</th>
+              <th>Duration (sec)</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      data.rows.forEach(r => {
+        html += `
+          <tr>
+            <td>${escapeHtml(r.ani)}</td>
+            <td>${escapeHtml(r.state)}</td>
+            <td><span class="payout-orig">$${r.payout}</span></td>
+            <td><span class="payout-adj">$${r.adjusted}</span></td>
+            <td>${escapeHtml(r.dts)}</td>
+            <td>${r.duration}</td>
+          </tr>
+        `;
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('table-container').innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
