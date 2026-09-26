@@ -396,7 +396,7 @@
 
     <div class="summary-row">
       <div class="card">
-        <div class="label">Total Payout</div>
+        <div class="label">Total Adjusted Payout</div>
         <div class="value" id="total-adjusted">$0.00</div>
       </div>
       <div class="card">
@@ -488,7 +488,6 @@
       const to   = document.getElementById('date-to').value || '';
       const refreshBtn = document.getElementById('refresh-btn');
 
-      // Show refreshing state
       document.getElementById('table-container').innerHTML = 
         `<div class="loading">${isRefresh ? 'Refreshing data…' : 'Loading data…'}</div>`;
       
@@ -502,7 +501,6 @@
         const res = await fetch(url);
         const text = await res.text();
 
-        // Check if response is valid JSON
         let data;
         try {
           data = JSON.parse(text);
@@ -544,11 +542,11 @@
         <table>
           <thead>
             <tr>
-              <th>ANI</th>
+              <th>Timestamp</th>
+              <th>Phone Number</th>
               <th>State</th>
-              <th>Adjusted Payout</th>
-              <th>Date / Time</th>
               <th>Duration (sec)</th>
+              <th>Payout</th>
             </tr>
           </thead>
           <tbody>
@@ -557,11 +555,11 @@
       data.rows.forEach(r => {
         html += `
           <tr>
+            <td>${escapeHtml(r.dts)}</td>
             <td>${escapeHtml(r.ani)}</td>
             <td>${escapeHtml(r.state)}</td>
-            <td><span class="payout-adj">$${r.adjusted}</span></td>
-            <td>${escapeHtml(r.dts)}</td>
             <td>${r.duration}</td>
+            <td><span class="payout-adj">$${r.adjusted}</span></td>
           </tr>
         `;
       });
