@@ -59,12 +59,6 @@
       overflow: hidden;
     }
 
-    .login-logo img {
-      max-width: 56px;
-      max-height: 56px;
-      object-fit: contain;
-    }
-
     .login-logo .placeholder {
       font-size: 28px;
       color: var(--primary);
@@ -102,7 +96,6 @@
       border: 1.5px solid var(--border);
       border-radius: 10px;
       font-size: 1rem;
-      transition: border-color 0.2s;
     }
 
     .form-group input:focus {
@@ -172,13 +165,6 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
-    }
-
-    .brand-logo img {
-      max-width: 36px;
-      max-height: 36px;
-      object-fit: contain;
     }
 
     .brand-logo .placeholder {
@@ -215,10 +201,6 @@
       cursor: pointer;
     }
 
-    .logout-btn:hover, .refresh-btn:hover {
-      background: var(--primary-light);
-    }
-
     .refresh-btn {
       background: var(--primary);
       color: white;
@@ -226,6 +208,10 @@
 
     .refresh-btn:hover {
       background: var(--primary-dark);
+    }
+
+    .logout-btn:hover {
+      background: var(--primary-light);
     }
 
     .summary-row {
@@ -350,15 +336,13 @@
       font-weight: 600;
     }
 
-    .empty-state {
+    .empty-state, .loading {
       text-align: center;
       padding: 48px 20px;
       color: var(--muted);
     }
 
     .loading {
-      text-align: center;
-      padding: 40px;
       color: var(--primary);
       font-weight: 600;
     }
@@ -376,11 +360,10 @@
   <div id="login-screen">
     <div class="login-card">
       <div class="login-logo">
-        <img src="logo.png" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-        <div class="placeholder" style="display:none;">VT</div>
+        <div class="placeholder">VT</div>
       </div>
       <h1>Vocal Tech Marketing</h1>
-      <p>Bidding Portal – Secure Access</p>
+      <p>Bidding Portal</p>
 
       <div class="form-group">
         <label for="password">Password</label>
@@ -399,26 +382,22 @@
     <header>
       <div class="brand">
         <div class="brand-logo">
-          <img src="logo.png" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-          <div class="placeholder" style="display:none;">VT</div>
+          <div class="placeholder">VT</div>
         </div>
         <div>
           <h1>Vocal Tech Marketing Bidding Portal</h1>
-          <span>Live Bidding Data • Automatic Deductions Applied</span>
         </div>
       </div>
       <div class="header-actions">
-        <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+        <button class="refresh-btn" id="refresh-btn" onclick="loadData(true)">↻ Refresh</button>
         <button class="logout-btn" onclick="logout()">Sign Out</button>
       </div>
     </header>
 
-    <!-- Summary Cards (only Adjusted + Count) -->
     <div class="summary-row">
       <div class="card">
-        <div class="label">Total Adjusted Payout</div>
+        <div class="label">Total Payout</div>
         <div class="value" id="total-adjusted">$0.00</div>
-        <div class="sub">After automatic deductions</div>
       </div>
       <div class="card">
         <div class="label">Records Shown</div>
@@ -427,7 +406,6 @@
       </div>
     </div>
 
-    <!-- Date Filters -->
     <div class="filters">
       <div class="form-group">
         <label for="date-from">From Date</label>
@@ -441,7 +419,6 @@
       <button class="btn btn-secondary" onclick="clearFilters()">Clear</button>
     </div>
 
-    <!-- Data Table -->
     <div class="table-wrap">
       <div class="table-header">
         <h2>Bidding Records</h2>
@@ -456,10 +433,8 @@
   </div>
 
   <script>
-    // ========== CONFIG ==========
     const API_URL = 'https://script.google.com/macros/s/AKfycbzJ6W0CD7GHfcyKTkmc0KF-mHQLR0Jrmyk6D33Ia637aA7lzo9BztNsTm5QMW9F_rqu/exec';
 
-    // ========== AUTH ==========
     async function attemptLogin() {
       const pwd = document.getElementById('password').value;
       const btn = document.getElementById('login-btn');
@@ -508,22 +483,43 @@
       if (e.key === 'Enter') attemptLogin();
     });
 
-    // ========== DATA ==========
-    async function loadData() {
+    async function loadData(isRefresh = false) {
       const from = document.getElementById('date-from').value || '';
       const to   = document.getElementById('date-to').value || '';
+      const refreshBtn = document.getElementById('refresh-btn');
 
-      document.getElementById('table-container').innerHTML = '<div class="loading">Loading latest data…</div>';
+      // Show refreshing state
+      document.getElementById('table-container').innerHTML = 
+        `<div class="loading">${isRefresh ? 'Refreshing data…' : 'Loading data…'}</div>`;
+      
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Refreshing…';
+      }
 
       try {
         const url = `${API_URL}?action=getdata&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
         const res = await fetch(url);
-        const data = await res.json();
+        const text = await res.text();
+
+        // Check if response is valid JSON
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          throw new Error('Server returned invalid response');
+        }
+
         renderData(data);
       } catch (err) {
         document.getElementById('table-container').innerHTML =
-          '<div class="empty-state">Error loading data. Please refresh the page.</div>';
+          '<div class="empty-state">Error loading data. Please try again.</div>';
         console.error(err);
+      } finally {
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '↻ Refresh';
+        }
       }
     }
 
@@ -536,8 +532,7 @@
     function renderData(data) {
       document.getElementById('total-adjusted').textContent = '$' + (data.totalAdjusted || '0.00');
       document.getElementById('record-count').textContent = data.count || 0;
-      document.getElementById('last-updated').textContent =
-        (data.lastSync || 'Updated') + ' • ' + new Date().toLocaleString();
+      document.getElementById('last-updated').textContent = data.lastSync || 'Updated just now';
 
       if (!data.rows || data.rows.length === 0) {
         document.getElementById('table-container').innerHTML =
