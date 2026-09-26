@@ -198,7 +198,13 @@
       color: var(--muted);
     }
 
-    .logout-btn {
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .logout-btn, .refresh-btn {
       background: transparent;
       color: var(--primary);
       border: 1.5px solid var(--primary);
@@ -209,7 +215,18 @@
       cursor: pointer;
     }
 
-    .logout-btn:hover { background: var(--primary-light); }
+    .logout-btn:hover, .refresh-btn:hover {
+      background: var(--primary-light);
+    }
+
+    .refresh-btn {
+      background: var(--primary);
+      color: white;
+    }
+
+    .refresh-btn:hover {
+      background: var(--primary-dark);
+    }
 
     .summary-row {
       display: grid;
@@ -328,12 +345,6 @@
 
     tr:hover td { background: #f0f7f7; }
 
-    .payout-orig {
-      color: var(--muted);
-      text-decoration: line-through;
-      font-size: 0.85rem;
-    }
-
     .payout-adj {
       color: var(--success);
       font-weight: 600;
@@ -396,19 +407,18 @@
           <span>Live Bidding Data • Automatic Deductions Applied</span>
         </div>
       </div>
-      <button class="logout-btn" onclick="logout()">Sign Out</button>
+      <div class="header-actions">
+        <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+        <button class="logout-btn" onclick="logout()">Sign Out</button>
+      </div>
     </header>
 
+    <!-- Summary Cards (only Adjusted + Count) -->
     <div class="summary-row">
       <div class="card">
         <div class="label">Total Adjusted Payout</div>
         <div class="value" id="total-adjusted">$0.00</div>
         <div class="sub">After automatic deductions</div>
-      </div>
-      <div class="card">
-        <div class="label">Total Original Payout</div>
-        <div class="value" id="total-original" style="color:var(--muted);">$0.00</div>
-        <div class="sub">Before deductions</div>
       </div>
       <div class="card">
         <div class="label">Records Shown</div>
@@ -417,6 +427,7 @@
       </div>
     </div>
 
+    <!-- Date Filters -->
     <div class="filters">
       <div class="form-group">
         <label for="date-from">From Date</label>
@@ -430,6 +441,7 @@
       <button class="btn btn-secondary" onclick="clearFilters()">Clear</button>
     </div>
 
+    <!-- Data Table -->
     <div class="table-wrap">
       <div class="table-header">
         <h2>Bidding Records</h2>
@@ -523,7 +535,6 @@
 
     function renderData(data) {
       document.getElementById('total-adjusted').textContent = '$' + (data.totalAdjusted || '0.00');
-      document.getElementById('total-original').textContent = '$' + (data.totalOriginal || '0.00');
       document.getElementById('record-count').textContent = data.count || 0;
       document.getElementById('last-updated').textContent =
         (data.lastSync || 'Updated') + ' • ' + new Date().toLocaleString();
@@ -540,7 +551,6 @@
             <tr>
               <th>ANI</th>
               <th>State</th>
-              <th>Original Payout</th>
               <th>Adjusted Payout</th>
               <th>Date / Time</th>
               <th>Duration (sec)</th>
@@ -554,7 +564,6 @@
           <tr>
             <td>${escapeHtml(r.ani)}</td>
             <td>${escapeHtml(r.state)}</td>
-            <td><span class="payout-orig">$${r.payout}</span></td>
             <td><span class="payout-adj">$${r.adjusted}</span></td>
             <td>${escapeHtml(r.dts)}</td>
             <td>${r.duration}</td>
