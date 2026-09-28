@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" href="logo.png" type="image/png">
   <title>Vocal Tech Marketing Bidding Portal</title>
   <style>
     :root {
@@ -380,7 +379,7 @@
         <div class="placeholder">VT</div>
       </div>
       <h1>Vocal Tech Marketing</h1>
-      <p>Bidding Portal</p>
+      <p>Bidding Portal – Secure Access</p>
 
       <div class="form-group">
         <label for="password">Password</label>
@@ -515,7 +514,10 @@
       }
 
       try {
-        const url = `${API_URL}?action=getdata&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        // Only force sync when user clicks the Refresh button
+        const syncParam = isRefresh ? '&sync=true' : '';
+        const url = `${API_URL}?action=getdata&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${syncParam}`;
+        
         const res = await fetch(url);
         const text = await res.text();
 
