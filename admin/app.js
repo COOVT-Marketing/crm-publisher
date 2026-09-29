@@ -1090,7 +1090,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     </div>
   </div>
   `;
-  /* ---------- Expose handlers used by inline onclick/onchange ---------- */
+
   window.doLogin = doLogin;
   window.doLogout = doLogout;
   window.doRefresh = doRefresh;
