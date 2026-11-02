@@ -195,10 +195,23 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   const API = "https://script.google.com/macros/s/AKfycbw7CBJksXRQFzwTvwCWUKfp-S_1BUUNfo4c4y-22emeX81jRa0PRHkiiJ8lFwRQpMAqVA/exec";
   let calls = [], monthly = [], timer = null, extraOpen = false;
   let payoutChart = null;
+  let defaultsApplied = false;   // Overview opens on today's date once per login
   let chartMode = "payout";      // "payout" | "calls"
   let stateSort = "avg_desc";    // key_dir
   /* Paid months: { "2026-08": { amount: 1234.5, paidOn: "2026-10-05" } } (stored in this browser) */
   const PAID_KEY = "vtm_paid_months";
+  // Shift runs 7 PM -> 5 AM. Before 6 AM local time the "current day" is still last night's shift,
+  // so the range starts yesterday (7 PM-midnight calls) and ends today (midnight-5 AM calls).
+  const SHIFT_CUTOFF_HOUR = 6;
+  function defaultDateRange() {
+    const now = new Date();
+    const today = formatDate(now);
+    if (now.getHours() < SHIFT_CUTOFF_HOUR) {
+      const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      return { from: formatDate(y), to: today };
+    }
+    return { from: today, to: today };
+  }
   function loadPaid() {
     try { return JSON.parse(localStorage.getItem(PAID_KEY) || "{}") || {}; } catch (e) { return {}; }
   }
@@ -271,6 +284,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   }
   function doLogout() {
     if (timer) clearInterval(timer);
+    defaultsApplied = false;
     localStorage.removeItem("vtm_logged_in");
     document.getElementById("a4").classList.add("hidden");
     document.getElementById("a0").classList.remove("hidden");
@@ -286,6 +300,12 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       const [c, m] = await Promise.all([api("getCalls"), api("getMonthly")]);
       calls = c.data || [];
       monthly = m.data || [];
+      if (!defaultsApplied) {
+        defaultsApplied = true;
+        const r = defaultDateRange();
+        document.getElementById("ag").value = r.from;
+        document.getElementById("ah").value = r.to;
+      }
       applyFilters();
       renderMonthly(monthly);
       if (!document.getElementById("am").classList.contains("hidden")) {
