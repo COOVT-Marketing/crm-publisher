@@ -122,6 +122,24 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
 .inv-form label{display:block;font-size:12px;font-weight:500;color:#64748b;margin-bottom:6px}
 .inv-form input,.inv-form select{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#1e293b;background:#fff}
 .inv-form input:focus,.inv-form select:focus{outline:none;border-color:#548888;box-shadow:0 0 0 3px rgba(84,136,136,.15)}
+.paid-modal{position:fixed;inset:0;z-index:1100;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(5,8,7,.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.paid-modal.open{display:flex;animation:fadeIn .2s ease}
+.pm-card{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:0 0 80px rgba(61,154,154,.08),var(--shadow);padding:1.75rem}
+.pm-icon{width:42px;height:42px;border-radius:12px;background:var(--accent-soft);color:#6bc4c4;display:flex;align-items:center;justify-content:center;margin-bottom:16px}
+.pm-icon.danger{background:rgba(224,92,92,.12);color:var(--danger)}
+.pm-title{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.pm-sub{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+.pm-label{display:block;font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:22px 0 8px}
+.pm-input{display:flex;align-items:center;background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0 14px;transition:border-color .2s,box-shadow .2s}
+.pm-input:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.pm-input span{color:var(--gold);font-weight:600;font-size:18px;margin-right:6px}
+.pm-input input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);font-size:18px;font-weight:600;padding:13px 0;font-variant-numeric:tabular-nums}
+.pm-hint{font-size:12px;color:var(--muted);margin-top:8px}
+.pm-error{font-size:12px;color:var(--danger);margin-top:8px}
+.pm-actions{display:flex;gap:10px;margin-top:24px}
+.pm-actions .btn{flex:1;padding:11px 16px}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{opacity:.9}
 .status-paid{display:inline-block;background:rgba(107,196,196,.15);color:#6bc4c4;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
 .status-pending{display:inline-block;background:rgba(232,184,74,.12);color:var(--gold);font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
 .btn-mini{font-size:12px;font-weight:500;padding:6px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--muted);cursor:pointer;transition:background .2s,color .2s;white-space:nowrap}
@@ -200,9 +218,6 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       if (isPaidCall(c)) paid += p; else pending += p;
     });
     return { all, pending, paid };
-  }
-  function paidNote(paid) {
-    return paid > 0 ? `Paid months excluded: $${paid.toFixed(2)}` : "";
   }
 
   function checkLogin() {
@@ -328,11 +343,9 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     applyFilters();
   }
   function renderMetrics(rows) {
-    const sub = document.getElementById("aaSub");
     if (!rows || !rows.length) {
       document.getElementById("a9").textContent = "0";
       document.getElementById("aa").textContent = "$0.00";
-      sub.textContent = "";
       document.getElementById("ab").innerHTML = '0 <span class="unit">sec</span>';
       document.getElementById("ac").textContent = "$0.00";
       document.getElementById("ad").textContent = "$0.00";
@@ -352,7 +365,6 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     document.getElementById("a9").textContent = rows.length;
     // Total Payout = only what is still to be received (paid months excluded)
     document.getElementById("aa").textContent = "$" + sp.pending.toFixed(2);
-    sub.textContent = paidNote(sp.paid);
     document.getElementById("ab").innerHTML = Math.round(td / rows.length) + ' <span class="unit">sec</span>';
     document.getElementById("ac").textContent = "$" + (sp.all / rows.length).toFixed(2);
     document.getElementById("ad").textContent = lo === Infinity ? "$0.00" : "$" + lo.toFixed(2);
@@ -565,7 +577,6 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     document.getElementById("ap").textContent = n;
     // Total Payout = still to be received (paid months excluded); Avg uses every call
     document.getElementById("anTotal").textContent = "$" + sp.pending.toFixed(2);
-    document.getElementById("anTotalSub").textContent = paidNote(sp.paid);
     document.getElementById("anAvg").textContent = "$" + (rows.length ? sp.all / rows.length : 0).toFixed(2);
     const { from, to } = getAnalyticsRange();
     const st = document.getElementById("anState").value;
@@ -741,24 +752,55 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     renderMonthly(monthly);
     if (!document.getElementById("am").classList.contains("hidden")) renderAnalytics();
   }
-  function markPaid(m, suggested) {
-    const raw = prompt(`Enter the invoice payout received for ${m}:`, (Number(suggested) || 0).toFixed(2));
-    if (raw === null) return;
-    const amt = Number(String(raw).replace(/[$,\s]/g, ""));
-    if (!isFinite(amt) || amt < 0) {
-      alert("Please enter a valid amount");
-      return;
+  let paidModalState = null;
+  function monthLabel(m) {
+    const [y, mo] = m.split("-").map(Number);
+    return new Date(y, mo - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  }
+  function openPaidModal(mode, m, suggested) {
+    paidModalState = { mode, m };
+    const isMark = mode === "mark";
+    document.getElementById("pmTitle").textContent = isMark ? "Mark as Paid" : "Remove Paid status";
+    document.getElementById("pmMonth").textContent = monthLabel(m);
+    document.getElementById("pmMarkBody").classList.toggle("hidden", !isMark);
+    document.getElementById("pmUndoBody").classList.toggle("hidden", isMark);
+    document.getElementById("pmError").classList.add("hidden");
+    document.getElementById("pmIcon").classList.toggle("danger", !isMark);
+    const btn = document.getElementById("pmConfirm");
+    btn.textContent = isMark ? "Mark as Paid" : "Remove Paid";
+    btn.className = "btn " + (isMark ? "btn-primary" : "btn-danger");
+    const input = document.getElementById("pmAmount");
+    if (isMark) {
+      input.value = suggested.toFixed(2);
+      document.getElementById("pmHint").textContent = `Calls total for this month: $${suggested.toFixed(2)}`;
     }
-    paidMonths[m] = { amount: amt, paidOn: formatDate(new Date()) };
+    document.getElementById("paidModal").classList.add("open");
+    if (isMark) setTimeout(() => { input.focus(); input.select(); }, 30);
+  }
+  function closePaidModal() {
+    paidModalState = null;
+    document.getElementById("paidModal").classList.remove("open");
+  }
+  function confirmPaidModal() {
+    if (!paidModalState) return;
+    const { mode, m } = paidModalState;
+    if (mode === "mark") {
+      const amt = Number(String(document.getElementById("pmAmount").value).replace(/[$,\s]/g, ""));
+      if (!isFinite(amt) || amt < 0 || document.getElementById("pmAmount").value.trim() === "") {
+        document.getElementById("pmError").classList.remove("hidden");
+        return;
+      }
+      paidMonths[m] = { amount: amt, paidOn: formatDate(new Date()) };
+    } else {
+      delete paidMonths[m];
+    }
     savePaid(paidMonths);
+    closePaidModal();
     refreshPaidViews();
   }
-  function unmarkPaid(m) {
-    if (!confirm(`Remove Paid status from ${m}? Its payout will count in Total Payout again.`)) return;
-    delete paidMonths[m];
-    savePaid(paidMonths);
-    refreshPaidViews();
-  }
+  function markPaid(m, suggested) { openPaidModal("mark", m, Number(suggested) || 0); }
+  function unmarkPaid(m) { openPaidModal("undo", m, 0); }
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && paidModalState) closePaidModal(); });
   // Jump to Overview with that month's date range so every call + payout is listed
   function viewMonthCalls(m) {
     const [y, mo] = m.split("-").map(Number);
@@ -1217,7 +1259,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       <div id="a8" class="space-y-5 fade-in">
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div class="metric"><div class="metric-label">Total Calls</div><div id="a9" class="metric-value">—</div></div>
-          <div class="metric"><div class="metric-label">Total Payout</div><div id="aa" class="metric-value" style="color:var(--gold)">—</div><div id="aaSub" class="metric-sub"></div></div>
+          <div class="metric"><div class="metric-label">Total Payout</div><div id="aa" class="metric-value" style="color:var(--gold)">—</div></div>
           <div class="metric"><div class="metric-label">Avg Duration</div><div id="ab" class="metric-value">— <span class="unit">sec</span></div></div>
           <div class="metric"><div class="metric-label">Avg Payout</div><div id="ac" class="metric-value" style="color:var(--gold)">—</div></div>
         </div>
@@ -1308,7 +1350,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
           <div class="metric"><div class="metric-label">Total Calls</div><div id="an" class="metric-value">—</div></div>
           <div class="metric"><div class="metric-label">Billable Calls</div><div id="ao" class="metric-value" style="color:var(--accent)">—</div></div>
           <div class="metric"><div class="metric-label">Non-Billable Calls</div><div id="ap" class="metric-value" style="color:var(--muted)">—</div></div>
-          <div class="metric"><div class="metric-label">Total Payout</div><div id="anTotal" class="metric-value" style="color:var(--gold)">—</div><div id="anTotalSub" class="metric-sub"></div></div>
+          <div class="metric"><div class="metric-label">Total Payout</div><div id="anTotal" class="metric-value" style="color:var(--gold)">—</div></div>
           <div class="metric"><div class="metric-label">Avg Payout</div><div id="anAvg" class="metric-value" style="color:var(--gold)">—</div></div>
         </div>
         <div class="stat-cards">
@@ -1506,6 +1548,29 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       </div>
     </div>
   </div>
+  <div id="paidModal" class="paid-modal" onclick="if(event.target===this)closePaidModal()">
+    <div class="pm-card">
+      <div id="pmIcon" class="pm-icon">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 13l4 4L19 7"/></svg>
+      </div>
+      <div id="pmTitle" class="pm-title">Mark as Paid</div>
+      <div id="pmMonth" class="pm-sub"></div>
+      <div id="pmMarkBody">
+        <label class="pm-label" for="pmAmount">Invoice payout received</label>
+        <div class="pm-input">
+          <span>$</span>
+          <input id="pmAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" onkeydown="if(event.key==='Enter')confirmPaidModal()">
+        </div>
+        <div id="pmHint" class="pm-hint"></div>
+        <div id="pmError" class="pm-error hidden">Please enter a valid amount</div>
+      </div>
+      <div id="pmUndoBody" class="pm-sub hidden" style="margin-top:14px">This month's payout will count in Total Payout again.</div>
+      <div class="pm-actions">
+        <button class="btn btn-ghost" onclick="closePaidModal()">Cancel</button>
+        <button id="pmConfirm" class="btn btn-primary" onclick="confirmPaidModal()">Mark as Paid</button>
+      </div>
+    </div>
+  </div>
   `;
   /* ---------- Expose handlers used by inline onclick/onchange ---------- */
   window.doLogin = doLogin;
@@ -1528,6 +1593,8 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   window.setStateSort = setStateSort;
   window.sortStateBy = sortStateBy;
   window.markPaid = markPaid;
+  window.closePaidModal = closePaidModal;
+  window.confirmPaidModal = confirmPaidModal;
   window.unmarkPaid = unmarkPaid;
   window.viewMonthCalls = viewMonthCalls;
   checkLogin();
