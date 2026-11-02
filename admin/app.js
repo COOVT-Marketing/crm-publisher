@@ -122,6 +122,18 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
 .inv-form label{display:block;font-size:12px;font-weight:500;color:#64748b;margin-bottom:6px}
 .inv-form input,.inv-form select{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#1e293b;background:#fff}
 .inv-form input:focus,.inv-form select:focus{outline:none;border-color:#548888;box-shadow:0 0 0 3px rgba(84,136,136,.15)}
+.status-paid{display:inline-block;background:rgba(107,196,196,.15);color:#6bc4c4;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
+.status-pending{display:inline-block;background:rgba(232,184,74,.12);color:var(--gold);font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
+.btn-mini{font-size:12px;font-weight:500;padding:6px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--muted);cursor:pointer;transition:background .2s,color .2s;white-space:nowrap}
+.btn-mini:hover{background:var(--border);color:var(--text)}
+.btn-mini-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-mini-primary:hover{background:var(--accent-h);color:#fff}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;gap:2px}
+.seg-btn{font-size:12px;font-weight:500;color:var(--muted);padding:6px 14px;border-radius:7px;border:none;background:transparent;cursor:pointer;transition:background .2s,color .2s}
+.seg-btn:hover:not(.active){color:var(--text)}
+.seg-btn.active{background:var(--accent);color:#fff}
+.th-sort{cursor:pointer;user-select:none}
+.th-sort:hover{color:var(--text)}
 @media print{
   body *{visibility:hidden!important}
   .inv-modal,.inv-modal *{visibility:visible!important}
@@ -165,6 +177,33 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   const API = "https://script.google.com/macros/s/AKfycbw7CBJksXRQFzwTvwCWUKfp-S_1BUUNfo4c4y-22emeX81jRa0PRHkiiJ8lFwRQpMAqVA/exec";
   let calls = [], monthly = [], timer = null, extraOpen = false;
   let payoutChart = null;
+  let chartMode = "payout";      // "payout" | "calls"
+  let stateSort = "avg_desc";    // key_dir
+  /* Paid months: { "2026-08": { amount: 1234.5, paidOn: "2026-10-05" } } (stored in this browser) */
+  const PAID_KEY = "vtm_paid_months";
+  function loadPaid() {
+    try { return JSON.parse(localStorage.getItem(PAID_KEY) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function savePaid(o) {
+    try { localStorage.setItem(PAID_KEY, JSON.stringify(o)); } catch (e) {}
+  }
+  let paidMonths = loadPaid();
+  function isPaidCall(c) {
+    const k = getRowDate(c.dts).slice(0, 7);
+    return !!(k && paidMonths[k]);
+  }
+  function splitPayout(rows) {
+    let all = 0, pending = 0, paid = 0;
+    rows.forEach(c => {
+      const p = Number(c.payout) || 0;
+      all += p;
+      if (isPaidCall(c)) paid += p; else pending += p;
+    });
+    return { all, pending, paid };
+  }
+  function paidNote(paid) {
+    return paid > 0 ? `Paid months excluded: $${paid.toFixed(2)}` : "";
+  }
 
   function checkLogin() {
     if (localStorage.getItem("vtm_logged_in") === "true") {
@@ -289,29 +328,33 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     applyFilters();
   }
   function renderMetrics(rows) {
+    const sub = document.getElementById("aaSub");
     if (!rows || !rows.length) {
       document.getElementById("a9").textContent = "0";
       document.getElementById("aa").textContent = "$0.00";
+      sub.textContent = "";
       document.getElementById("ab").innerHTML = '0 <span class="unit">sec</span>';
       document.getElementById("ac").textContent = "$0.00";
       document.getElementById("ad").textContent = "$0.00";
       document.getElementById("ae").textContent = "$0.00";
       return;
     }
-    let tp = 0, td = 0, lo = Infinity, hi = -Infinity;
+    let td = 0, lo = Infinity, hi = -Infinity;
     rows.forEach(c => {
       const p = Number(c.payout) || 0;
-      tp += p;
       td += Number(c.call_duration_sec) || 0;
       if (p > 0) {
         if (p < lo) lo = p;
         if (p > hi) hi = p;
       }
     });
+    const sp = splitPayout(rows);
     document.getElementById("a9").textContent = rows.length;
-    document.getElementById("aa").textContent = "$" + tp.toFixed(2);
+    // Total Payout = only what is still to be received (paid months excluded)
+    document.getElementById("aa").textContent = "$" + sp.pending.toFixed(2);
+    sub.textContent = paidNote(sp.paid);
     document.getElementById("ab").innerHTML = Math.round(td / rows.length) + ' <span class="unit">sec</span>';
-    document.getElementById("ac").textContent = "$" + (tp / rows.length).toFixed(2);
+    document.getElementById("ac").textContent = "$" + (sp.all / rows.length).toFixed(2);
     document.getElementById("ad").textContent = lo === Infinity ? "$0.00" : "$" + lo.toFixed(2);
     document.getElementById("ae").textContent = hi === -Infinity ? "$0.00" : "$" + hi.toFixed(2);
   }
@@ -397,18 +440,17 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       shortSub.textContent = "No data";
     }
   }
-  function buildDailyPayouts(rows) {
+  function buildDailySeries(rows, mode) {
     const map = {};
     rows.forEach(c => {
       const d = getRowDate(c.dts);
       if (!d) return;
       if (!map[d]) map[d] = 0;
-      map[d] += Number(c.payout) || 0;
+      map[d] += mode === "calls" ? 1 : (Number(c.payout) || 0);
     });
     const keys = Object.keys(map).sort();
     return {
       labels: keys.map(k => {
-        // MM-DD for compact axis like the reference image
         const parts = k.split("-");
         return parts.length === 3 ? `${parts[1]}-${parts[2]}` : k;
       }),
@@ -416,10 +458,21 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       values: keys.map(k => map[k])
     };
   }
+  function setChartMode(mode) {
+    chartMode = mode === "calls" ? "calls" : "payout";
+    document.getElementById("chartModePayout").classList.toggle("active", chartMode === "payout");
+    document.getElementById("chartModeCalls").classList.toggle("active", chartMode === "calls");
+    document.getElementById("chartTitle").textContent = chartMode === "calls" ? "Daily Calls Chart" : "Daily Payout Chart";
+    renderPayoutChart(getAnalyticsFiltered());
+  }
   function renderPayoutChart(rows) {
     const canvas = document.getElementById("payoutChart");
     if (!canvas || typeof Chart === "undefined") return;
-    const data = buildDailyPayouts(rows);
+    const isCalls = chartMode === "calls";
+    const data = buildDailySeries(rows, chartMode);
+    const color = isCalls ? "#3d9a9a" : "#e8b84a";
+    const fill = isCalls ? "rgba(61,154,154,0.15)" : "rgba(232,184,74,0.12)";
+    const hover = isCalls ? "#6bc4c4" : "#f0c96a";
     if (payoutChart) {
       payoutChart.destroy();
       payoutChart = null;
@@ -433,19 +486,19 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       data: {
         labels: data.labels,
         datasets: [{
-          label: "Payout",
+          label: isCalls ? "Calls" : "Payout",
           data: data.values,
-          borderColor: "#e8b84a",
-          backgroundColor: "rgba(232,184,74,0.12)",
+          borderColor: color,
+          backgroundColor: fill,
           borderWidth: 2.5,
           fill: true,
           tension: 0.35,
           pointRadius: 4,
           pointHoverRadius: 6,
-          pointBackgroundColor: "#e8b84a",
+          pointBackgroundColor: color,
           pointBorderColor: "#161b19",
           pointBorderWidth: 2,
-          pointHoverBackgroundColor: "#f0c96a",
+          pointHoverBackgroundColor: hover,
           pointHoverBorderColor: "#161b19"
         }]
       },
@@ -469,7 +522,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
                 const i = items[0]?.dataIndex;
                 return data.fullDates[i] || items[0]?.label || "";
               },
-              label: (ctx) => `Payout: $${Number(ctx.raw).toFixed(2)}`
+              label: (ctx) => isCalls ? `Calls: ${ctx.raw}` : `Payout: $${Number(ctx.raw).toFixed(2)}`
             }
           }
         },
@@ -490,7 +543,8 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
             ticks: {
               color: "#7d8782",
               font: { size: 11, family: "Inter, system-ui, sans-serif" },
-              callback: (v) => "$" + v
+              precision: isCalls ? 0 : undefined,
+              callback: (v) => isCalls ? v : "$" + v
             }
           }
         }
@@ -500,17 +554,19 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   function renderAnalytics() {
     populateStateFilter();
     const rows = getAnalyticsFiltered();
-    let b = 0, n = 0, tp = 0;
+    let b = 0, n = 0;
     rows.forEach(c => {
       const p = Number(c.payout) || 0;
-      tp += p;
       if (p > 0) b++; else n++;
     });
+    const sp = splitPayout(rows);
     document.getElementById("an").textContent = rows.length;
     document.getElementById("ao").textContent = b;
     document.getElementById("ap").textContent = n;
-    document.getElementById("anTotal").textContent = "$" + tp.toFixed(2);
-    document.getElementById("anAvg").textContent = "$" + (rows.length ? tp / rows.length : 0).toFixed(2);
+    // Total Payout = still to be received (paid months excluded); Avg uses every call
+    document.getElementById("anTotal").textContent = "$" + sp.pending.toFixed(2);
+    document.getElementById("anTotalSub").textContent = paidNote(sp.paid);
+    document.getElementById("anAvg").textContent = "$" + (rows.length ? sp.all / rows.length : 0).toFixed(2);
     const { from, to } = getAnalyticsRange();
     const st = document.getElementById("anState").value;
     let when = "All time";
@@ -534,6 +590,17 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       setTimeout(() => clearInterval(wait), 5000);
     }
   }
+  const byState = (a, b) => a.state.localeCompare(b.state);
+  const STATE_SORTS = {
+    state_asc: (a, b) => byState(a, b),
+    state_desc: (a, b) => byState(b, a),
+    calls_desc: (a, b) => b.calls - a.calls || byState(a, b),
+    calls_asc: (a, b) => a.calls - b.calls || byState(a, b),
+    payout_desc: (a, b) => b.totalPayout - a.totalPayout || byState(a, b),
+    payout_asc: (a, b) => a.totalPayout - b.totalPayout || byState(a, b),
+    avg_desc: (a, b) => b.avgBid - a.avgBid || byState(a, b),
+    avg_asc: (a, b) => a.avgBid - b.avgBid || byState(a, b)
+  };
   function getStates(rows) {
     const s = {};
     rows.forEach(c => {
@@ -544,9 +611,36 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     });
     return Object.keys(s)
       .map(k => ({ state: k, calls: s[k].c, totalPayout: s[k].t, avgBid: s[k].c ? s[k].t / s[k].c : 0 }))
-      .sort((a, b) => b.avgBid - a.avgBid);
+      .sort(STATE_SORTS[stateSort] || STATE_SORTS.avg_desc);
+  }
+  function setStateSort(val) {
+    if (!STATE_SORTS[val]) val = "avg_desc";
+    stateSort = val;
+    const sel = document.getElementById("stateSort");
+    if (sel) sel.value = val;
+    renderStates(getAnalyticsFiltered());
+  }
+  // Clicking a column header: first click = natural order, click again = reverse
+  function sortStateBy(key) {
+    const [k, dir] = stateSort.split("_");
+    const next = k === key
+      ? key + "_" + (dir === "asc" ? "desc" : "asc")
+      : key + "_" + (key === "state" ? "asc" : "desc");
+    setStateSort(next);
+  }
+  function updateStateSortUI() {
+    const [k, dir] = stateSort.split("_");
+    const arrow = dir === "asc" ? " ▲" : " ▼";
+    [["thState", "state", "State"], ["thCalls", "calls", "Calls"], ["thPayout", "payout", "Total Payout"], ["thAvg", "avg", "Average Bid"]]
+      .forEach(([id, key, label]) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = label + (k === key ? arrow : "");
+      });
+    const sel = document.getElementById("stateSort");
+    if (sel) sel.value = stateSort;
   }
   function renderStates(rows) {
+    updateStateSortUI();
     const st = getStates(rows || getAnalyticsFiltered());
     const tb = document.getElementById("aq");
     tb.innerHTML = "";
@@ -584,32 +678,98 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
         <td style="color:var(--muted)">${r.state || "—"}</td>
         <td style="color:var(--muted)">${r.call_duration_sec || "—"}s</td>
         <td class="font-medium" style="color:var(--gold)">$${p.toFixed(2)}</td>
-        <td>${st}</td>`;
+        <td>${st}${p > 0 && isPaidCall(r) ? ' <span class="status-paid">Paid</span>' : ''}</td>`;
       tb.appendChild(tr);
     });
+  }
+  function normMonthKey(raw) {
+    let m = (raw || "").toString().trim();
+    if (m.length > 7) {
+      const mt = m.match(/(\d{4})-(\d{2})/);
+      if (mt) m = mt[0];
+      else {
+        const d = new Date(m);
+        if (!isNaN(d.getTime())) {
+          const p = n => String(n).padStart(2, "0");
+          m = `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
+        }
+      }
+    }
+    return m;
+  }
+  function renderPaidSummary() {
+    const el = document.getElementById("paidSummary");
+    if (!el) return;
+    let pending = 0, received = 0;
+    calls.forEach(c => { if (!isPaidCall(c)) pending += Number(c.payout) || 0; });
+    Object.keys(paidMonths).forEach(k => { received += Number(paidMonths[k].amount) || 0; });
+    el.innerHTML = `<span style="color:var(--muted)">Pending to receive: <b style="color:var(--gold)">$${pending.toFixed(2)}</b></span>
+      <span style="color:var(--muted)">Received (paid months): <b style="color:#6bc4c4">$${received.toFixed(2)}</b></span>`;
   }
   function renderMonthly(rows) {
     const tb = document.getElementById("ar");
     tb.innerHTML = "";
     (rows || []).forEach(r => {
-      let m = (r.month || "").toString().trim();
-      if (m.length > 7) {
-        const mt = m.match(/(\d{4})-(\d{2})/);
-        if (mt) m = mt[0];
-        else {
-          const d = new Date(m);
-          if (!isNaN(d.getTime())) {
-            const p = n => String(n).padStart(2, "0");
-            m = `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
-          }
-        }
-      }
+      const m = normMonthKey(r.month);
+      const total = Number(r.total_payout || 0);
+      const paid = m ? paidMonths[m] : null;
+      const statusCell = paid ? `<span class="status-paid">Paid</span>` : `<span class="status-pending">Pending</span>`;
+      const paidCell = paid
+        ? `<span class="font-medium" style="color:#6bc4c4">$${Number(paid.amount).toFixed(2)}</span>`
+        : `<span style="color:var(--muted)">—</span>`;
+      const actions = m
+        ? `<div class="flex flex-wrap gap-2 justify-end">
+             <button class="btn-mini" onclick="viewMonthCalls('${m}')">View Calls</button>
+             ${paid
+               ? `<button class="btn-mini" onclick="unmarkPaid('${m}')">Undo Paid</button>`
+               : `<button class="btn-mini btn-mini-primary" onclick="markPaid('${m}', ${total})">Mark Paid</button>`}
+           </div>`
+        : "";
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${m || "—"}</td>
-        <td class="font-medium" style="color:var(--gold)">$${Number(r.total_payout || 0).toFixed(2)}</td>
-        <td style="color:var(--muted)">${r.total_calls || "—"}</td>`;
+        <td class="font-medium" style="color:var(--gold)">$${total.toFixed(2)}</td>
+        <td style="color:var(--muted)">${r.total_calls || "—"}</td>
+        <td>${statusCell}</td>
+        <td>${paidCell}</td>
+        <td style="text-align:right">${actions}</td>`;
       tb.appendChild(tr);
     });
+    renderPaidSummary();
+  }
+  function refreshPaidViews() {
+    applyFilters();
+    renderMonthly(monthly);
+    if (!document.getElementById("am").classList.contains("hidden")) renderAnalytics();
+  }
+  function markPaid(m, suggested) {
+    const raw = prompt(`Enter the invoice payout received for ${m}:`, (Number(suggested) || 0).toFixed(2));
+    if (raw === null) return;
+    const amt = Number(String(raw).replace(/[$,\s]/g, ""));
+    if (!isFinite(amt) || amt < 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+    paidMonths[m] = { amount: amt, paidOn: formatDate(new Date()) };
+    savePaid(paidMonths);
+    refreshPaidViews();
+  }
+  function unmarkPaid(m) {
+    if (!confirm(`Remove Paid status from ${m}? Its payout will count in Total Payout again.`)) return;
+    delete paidMonths[m];
+    savePaid(paidMonths);
+    refreshPaidViews();
+  }
+  // Jump to Overview with that month's date range so every call + payout is listed
+  function viewMonthCalls(m) {
+    const [y, mo] = m.split("-").map(Number);
+    const last = new Date(y, mo, 0).getDate();
+    document.getElementById("af").value = "";
+    document.getElementById("ag").value = `${m}-01`;
+    document.getElementById("ah").value = `${m}-${String(last).padStart(2, "0")}`;
+    document.getElementById("ai").value = "all";
+    switchTab("o");
+    applyFilters();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function switchTab(p) {
     document.getElementById("a8").classList.toggle("hidden", p !== "o");
@@ -1057,7 +1217,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       <div id="a8" class="space-y-5 fade-in">
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div class="metric"><div class="metric-label">Total Calls</div><div id="a9" class="metric-value">—</div></div>
-          <div class="metric"><div class="metric-label">Total Payout</div><div id="aa" class="metric-value" style="color:var(--gold)">—</div></div>
+          <div class="metric"><div class="metric-label">Total Payout</div><div id="aa" class="metric-value" style="color:var(--gold)">—</div><div id="aaSub" class="metric-sub"></div></div>
           <div class="metric"><div class="metric-label">Avg Duration</div><div id="ab" class="metric-value">— <span class="unit">sec</span></div></div>
           <div class="metric"><div class="metric-label">Avg Payout</div><div id="ac" class="metric-value" style="color:var(--gold)">—</div></div>
         </div>
@@ -1148,7 +1308,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
           <div class="metric"><div class="metric-label">Total Calls</div><div id="an" class="metric-value">—</div></div>
           <div class="metric"><div class="metric-label">Billable Calls</div><div id="ao" class="metric-value" style="color:var(--accent)">—</div></div>
           <div class="metric"><div class="metric-label">Non-Billable Calls</div><div id="ap" class="metric-value" style="color:var(--muted)">—</div></div>
-          <div class="metric"><div class="metric-label">Total Payout</div><div id="anTotal" class="metric-value" style="color:var(--gold)">—</div></div>
+          <div class="metric"><div class="metric-label">Total Payout</div><div id="anTotal" class="metric-value" style="color:var(--gold)">—</div><div id="anTotalSub" class="metric-sub"></div></div>
           <div class="metric"><div class="metric-label">Avg Payout</div><div id="anAvg" class="metric-value" style="color:var(--gold)">—</div></div>
         </div>
         <div class="stat-cards">
@@ -1164,24 +1324,47 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
           </div>
         </div>
         <div class="card chart-card">
-          <div class="chart-title">Daily Payout Chart</div>
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div id="chartTitle" class="chart-title" style="margin-bottom:0">Daily Payout Chart</div>
+            <div class="seg">
+              <button id="chartModePayout" class="seg-btn active" onclick="setChartMode('payout')">Payout</button>
+              <button id="chartModeCalls" class="seg-btn" onclick="setChartMode('calls')">Calls</button>
+            </div>
+          </div>
           <div class="chart-wrap">
             <canvas id="payoutChart"></canvas>
           </div>
         </div>
         <div class="card overflow-hidden">
           <div class="px-5 py-4 border-b" style="border-color:var(--border)">
-            <h2 class="font-semibold text-[13.5px] tracking-wide">State Summary</h2>
-            <p class="text-[11.5px] mt-1" style="color:var(--muted)">Calls, total payout and average bid per state</p>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="font-semibold text-[13.5px] tracking-wide">State Summary</h2>
+              <p class="text-[11.5px] mt-1" style="color:var(--muted)">Calls, total payout and average bid per state</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[11px] font-medium" style="color:var(--muted)">Sort by</label>
+              <select id="stateSort" class="input-dark px-3 py-2" onchange="setStateSort(this.value)">
+                <option value="avg_desc">Average Bid (High → Low)</option>
+                <option value="avg_asc">Average Bid (Low → High)</option>
+                <option value="calls_desc">Calls (High → Low)</option>
+                <option value="calls_asc">Calls (Low → High)</option>
+                <option value="state_asc">State (A → Z)</option>
+                <option value="state_desc">State (Z → A)</option>
+                <option value="payout_desc">Total Payout (High → Low)</option>
+                <option value="payout_asc">Total Payout (Low → High)</option>
+              </select>
+            </div>
+          </div>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>State</th>
-                  <th>Calls</th>
-                  <th>Total Payout</th>
-                  <th>Average Bid</th>
+                  <th id="thState" class="th-sort" onclick="sortStateBy('state')">State</th>
+                  <th id="thCalls" class="th-sort" onclick="sortStateBy('calls')">Calls</th>
+                  <th id="thPayout" class="th-sort" onclick="sortStateBy('payout')">Total Payout</th>
+                  <th id="thAvg" class="th-sort" onclick="sortStateBy('avg')">Average Bid ▼</th>
                 </tr>
               </thead>
               <tbody id="aq"></tbody>
@@ -1191,6 +1374,8 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
         <div class="card overflow-hidden">
           <div class="px-5 py-4 border-b" style="border-color:var(--border)">
             <h2 class="font-semibold text-[13.5px] tracking-wide">Monthly Summary</h2>
+            <p class="text-[11.5px] mt-1" style="color:var(--muted)">Mark a month as Paid once its invoice payout is received — paid months are left out of Total Payout, call history stays available via View Calls</p>
+            <div id="paidSummary" class="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-[12.5px]"></div>
           </div>
           <div class="table-wrap">
             <table>
@@ -1199,6 +1384,9 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
                   <th>Month</th>
                   <th>Total Payout</th>
                   <th>Total Calls</th>
+                  <th>Status</th>
+                  <th>Paid Amount</th>
+                  <th style="text-align:right">Actions</th>
                 </tr>
               </thead>
               <tbody id="ar"></tbody>
@@ -1336,5 +1524,11 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   window.onAnRange = onAnRange;
   window.clearAnalyticsFilters = clearAnalyticsFilters;
   window.renderAnalytics = renderAnalytics;
+  window.setChartMode = setChartMode;
+  window.setStateSort = setStateSort;
+  window.sortStateBy = sortStateBy;
+  window.markPaid = markPaid;
+  window.unmarkPaid = unmarkPaid;
+  window.viewMonthCalls = viewMonthCalls;
   checkLogin();
 })();
