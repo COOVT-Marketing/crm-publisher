@@ -140,6 +140,8 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
 .pm-actions .btn{flex:1;padding:11px 16px}
 .btn-danger{background:var(--danger);color:#fff}
 .btn-danger:hover{opacity:.9}
+.status-rejected{display:inline-block;background:rgba(224,92,92,.12);color:#ef8a8a;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
+.btn-mini-danger:hover{background:rgba(224,92,92,.15);border-color:var(--danger);color:#ef8a8a}
 .status-paid{display:inline-block;background:rgba(107,196,196,.15);color:#6bc4c4;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
 .status-pending{display:inline-block;background:rgba(232,184,74,.12);color:var(--gold);font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px}
 .btn-mini{font-size:12px;font-weight:500;padding:6px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--muted);cursor:pointer;transition:background .2s,color .2s;white-space:nowrap}
@@ -219,18 +221,88 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     try { localStorage.setItem(PAID_KEY, JSON.stringify(o)); } catch (e) {}
   }
   let paidMonths = loadPaid();
+  const REJ_KEY = "vtm_rejected_calls";
+  const SYNC_FLAG = "vtm_state_synced";
+  function loadRej() {
+    try { return JSON.parse(localStorage.getItem(REJ_KEY) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function saveRej(o) {
+    try { localStorage.setItem(REJ_KEY, JSON.stringify(o)); } catch (e) {}
+  }
+  let rejectedCalls = loadRej();
+  let syncOK = null;       // null = unknown, true = shared across devices, false = this device only
+  let writesInFlight = 0;
+  function callKey(c) { return String(c.dts || "").trim() + "|" + String(c.ani || "").trim(); }
+  function isRejected(c) { return !!rejectedCalls[callKey(c)]; }
+  function effPayout(c) { return isRejected(c) ? 0 : (Number(c.payout) || 0); }
   function isPaidCall(c) {
     const k = getRowDate(c.dts).slice(0, 7);
     return !!(k && paidMonths[k]);
   }
+  // Rejected calls are deducted everywhere; paid months are left out of the "still to receive" total.
   function splitPayout(rows) {
-    let all = 0, pending = 0, paid = 0;
+    let all = 0, pending = 0, paid = 0, rejected = 0;
     rows.forEach(c => {
-      const p = Number(c.payout) || 0;
-      all += p;
-      if (isPaidCall(c)) paid += p; else pending += p;
+      const raw = Number(c.payout) || 0;
+      if (isRejected(c)) { rejected += raw; return; }
+      all += raw;
+      if (isPaidCall(c)) paid += raw; else pending += raw;
     });
-    return { all, pending, paid };
+    return { all, pending, paid, rejected };
+  }
+  function updateSyncLabel() {
+    const el = document.getElementById("syncStatus");
+    if (!el) return;
+    if (syncOK === true) { el.textContent = "● Synced across devices"; el.style.color = "#6bc4c4"; }
+    else if (syncOK === false) { el.textContent = "● Saved on this device only (shared backend not connected)"; el.style.color = "var(--gold)"; }
+    else el.textContent = "";
+  }
+  async function loadSharedState() {
+    if (writesInFlight > 0) return;
+    try {
+      const res = await api("getState");
+      const d = res && res.data;
+      if (!d || typeof d.paid !== "object" || typeof d.rejected !== "object") throw new Error("state api missing");
+      // One time per device: upload what this device had saved before sync existed
+      if (localStorage.getItem(SYNC_FLAG) !== "1") {
+        const jobs = [];
+        Object.keys(paidMonths).forEach(m => {
+          if (!d.paid[m]) {
+            d.paid[m] = paidMonths[m];
+            jobs.push(api("setPaid", { month: m, amount: paidMonths[m].amount, paidOn: paidMonths[m].paidOn || "" }));
+          }
+        });
+        Object.keys(rejectedCalls).forEach(k => {
+          if (!d.rejected[k]) {
+            d.rejected[k] = 1;
+            jobs.push(api("setRejected", { key: k, value: 1 }));
+          }
+        });
+        await Promise.all(jobs);
+        localStorage.setItem(SYNC_FLAG, "1");
+      }
+      paidMonths = d.paid;
+      rejectedCalls = d.rejected;
+      savePaid(paidMonths);
+      saveRej(rejectedCalls);
+      syncOK = true;
+    } catch (e) {
+      syncOK = false;
+    }
+    updateSyncLabel();
+  }
+  async function pushState(action, params) {
+    writesInFlight++;
+    try {
+      const res = await api(action, params);
+      if (!res || res.success === false) throw new Error("write failed");
+      syncOK = true;
+    } catch (e) {
+      syncOK = false;
+    } finally {
+      writesInFlight--;
+    }
+    updateSyncLabel();
   }
 
   function checkLogin() {
@@ -300,6 +372,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       const [c, m] = await Promise.all([api("getCalls"), api("getMonthly")]);
       calls = c.data || [];
       monthly = m.data || [];
+      await loadSharedState();
       if (!defaultsApplied) {
         defaultsApplied = true;
         const r = defaultDateRange();
@@ -345,8 +418,10 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
         if (to && rd > to) return false;
       }
       const po = Number(r.payout) || 0;
-      if (st === "billable" && po <= 0) return false;
+      const rj = isRejected(r);
+      if (st === "billable" && (po <= 0 || rj)) return false;
       if (st === "nonbillable" && po > 0) return false;
+      if (st === "rejected" && !rj) return false;
       return true;
     });
   }
@@ -374,7 +449,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     }
     let td = 0, lo = Infinity, hi = -Infinity;
     rows.forEach(c => {
-      const p = Number(c.payout) || 0;
+      const p = effPayout(c);
       td += Number(c.call_duration_sec) || 0;
       if (p > 0) {
         if (p < lo) lo = p;
@@ -478,7 +553,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       const d = getRowDate(c.dts);
       if (!d) return;
       if (!map[d]) map[d] = 0;
-      map[d] += mode === "calls" ? 1 : (Number(c.payout) || 0);
+      map[d] += mode === "calls" ? 1 : effPayout(c);
     });
     const keys = Object.keys(map).sort();
     return {
@@ -638,7 +713,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
       const st = normState(c);
       if (!s[st]) s[st] = { c: 0, t: 0 };
       s[st].c++;
-      s[st].t += Number(c.payout) || 0;
+      s[st].t += effPayout(c);
     });
     return Object.keys(s)
       .map(k => ({ state: k, calls: s[k].c, totalPayout: s[k].t, avgBid: s[k].c ? s[k].t / s[k].c : 0 }))
@@ -702,14 +777,27 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     nd.classList.add("hidden");
     rows.forEach(r => {
       const p = Number(r.payout) || 0;
-      const st = p > 0 ? `<span class="status-billable">Billable</span>` : `<span class="status-non">Non-billable</span>`;
+      const rej = isRejected(r);
+      let st = p > 0 ? `<span class="status-billable">Billable</span>` : `<span class="status-non">Non-billable</span>`;
+      if (rej) st = `<span class="status-rejected">Rejected</span>`;
+      const paidTag = !rej && p > 0 && isPaidCall(r) ? ' <span class="status-paid">Paid</span>' : '';
+      const k = encodeURIComponent(callKey(r));
+      const act = p > 0
+        ? (rej
+            ? `<button class="btn-mini" onclick="restoreCall('${k}')">Restore</button>`
+            : `<button class="btn-mini btn-mini-danger" onclick="rejectCall('${k}')">Reject</button>`)
+        : "";
+      const payoutCell = rej
+        ? `<td class="font-medium" style="color:var(--muted);text-decoration:line-through">$${p.toFixed(2)}</td>`
+        : `<td class="font-medium" style="color:var(--gold)">$${p.toFixed(2)}</td>`;
       const tr = document.createElement("tr");
       tr.innerHTML = `<td style="color:var(--muted)">${formatTs(r.dts)}</td>
         <td class="font-mono">${r.ani || "—"}</td>
         <td style="color:var(--muted)">${r.state || "—"}</td>
         <td style="color:var(--muted)">${r.call_duration_sec || "—"}s</td>
-        <td class="font-medium" style="color:var(--gold)">$${p.toFixed(2)}</td>
-        <td>${st}${p > 0 && isPaidCall(r) ? ' <span class="status-paid">Paid</span>' : ''}</td>`;
+        ${payoutCell}
+        <td>${st}${paidTag}</td>
+        <td style="text-align:right">${act}</td>`;
       tb.appendChild(tr);
     });
   }
@@ -731,18 +819,32 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   function renderPaidSummary() {
     const el = document.getElementById("paidSummary");
     if (!el) return;
-    let pending = 0, received = 0;
-    calls.forEach(c => { if (!isPaidCall(c)) pending += Number(c.payout) || 0; });
+    let pending = 0, received = 0, rejected = 0;
+    calls.forEach(c => {
+      const p = Number(c.payout) || 0;
+      if (isRejected(c)) rejected += p;
+      else if (!isPaidCall(c)) pending += p;
+    });
     Object.keys(paidMonths).forEach(k => { received += Number(paidMonths[k].amount) || 0; });
     el.innerHTML = `<span style="color:var(--muted)">Pending to receive: <b style="color:var(--gold)">$${pending.toFixed(2)}</b></span>
-      <span style="color:var(--muted)">Received (paid months): <b style="color:#6bc4c4">$${received.toFixed(2)}</b></span>`;
+      <span style="color:var(--muted)">Received (paid months): <b style="color:#6bc4c4">$${received.toFixed(2)}</b></span>` +
+      (rejected > 0 ? `<span style="color:var(--muted)">Rejected (deducted): <b style="color:#ef8a8a">$${rejected.toFixed(2)}</b></span>` : "");
+    updateSyncLabel();
   }
   function renderMonthly(rows) {
     const tb = document.getElementById("ar");
     tb.innerHTML = "";
+    const rejByMonth = {};
+    calls.forEach(c => {
+      if (isRejected(c)) {
+        const k = getRowDate(c.dts).slice(0, 7);
+        rejByMonth[k] = (rejByMonth[k] || 0) + (Number(c.payout) || 0);
+      }
+    });
     (rows || []).forEach(r => {
       const m = normMonthKey(r.month);
-      const total = Number(r.total_payout || 0);
+      const rej = rejByMonth[m] || 0;
+      const total = Math.max(0, Number(r.total_payout || 0) - rej);
       const paid = m ? paidMonths[m] : null;
       const statusCell = paid ? `<span class="status-paid">Paid</span>` : `<span class="status-pending">Pending</span>`;
       const paidCell = paid
@@ -758,7 +860,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
         : "";
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${m || "—"}</td>
-        <td class="font-medium" style="color:var(--gold)">$${total.toFixed(2)}</td>
+        <td class="font-medium" style="color:var(--gold)">$${total.toFixed(2)}${rej > 0 ? `<div class="metric-sub" style="color:#ef8a8a;margin-top:2px">−$${rej.toFixed(2)} rejected</div>` : ""}</td>
         <td style="color:var(--muted)">${r.total_calls || "—"}</td>
         <td>${statusCell}</td>
         <td>${paidCell}</td>
@@ -777,18 +879,43 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     const [y, mo] = m.split("-").map(Number);
     return new Date(y, mo - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
   }
-  function openPaidModal(mode, m, suggested) {
-    paidModalState = { mode, m };
+  const CHECK_SVG = '<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 13l4 4L19 7"/></svg>';
+  const X_SVG = '<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 18L18 6M6 6l12 12"/></svg>';
+  function openPaidModal(mode, id, suggested) {
+    paidModalState = { mode, id };
     const isMark = mode === "mark";
-    document.getElementById("pmTitle").textContent = isMark ? "Mark as Paid" : "Remove Paid status";
-    document.getElementById("pmMonth").textContent = monthLabel(m);
+    const isCall = mode === "reject" || mode === "restore";
+    let title, sub, text = "", btnText, danger, icon;
+    if (isCall) {
+      const c = calls.find(x => callKey(x) === id) || {};
+      const amt = (Number(c.payout) || 0).toFixed(2);
+      sub = `${c.ani || "—"} · ${(c.state || "—").toString().toUpperCase()} · $${amt}`;
+      if (mode === "reject") {
+        title = "Reject this call?"; text = `Its payout ($${amt}) will be deducted from Total Payout.`;
+        btnText = "Reject Call"; danger = true; icon = X_SVG;
+      } else {
+        title = "Restore this call?"; text = "Its payout will count in Total Payout again.";
+        btnText = "Restore Call"; danger = false; icon = CHECK_SVG;
+      }
+    } else if (isMark) {
+      title = "Mark as Paid"; sub = monthLabel(id); btnText = "Mark as Paid"; danger = false; icon = CHECK_SVG;
+    } else {
+      title = "Remove Paid status"; sub = monthLabel(id);
+      text = "This month's payout will count in Total Payout again.";
+      btnText = "Remove Paid"; danger = true; icon = X_SVG;
+    }
+    document.getElementById("pmTitle").textContent = title;
+    document.getElementById("pmMonth").textContent = sub;
+    document.getElementById("pmIcon").innerHTML = icon;
+    document.getElementById("pmIcon").classList.toggle("danger", danger);
     document.getElementById("pmMarkBody").classList.toggle("hidden", !isMark);
-    document.getElementById("pmUndoBody").classList.toggle("hidden", isMark);
+    const ub = document.getElementById("pmUndoBody");
+    ub.classList.toggle("hidden", isMark);
+    ub.textContent = text;
     document.getElementById("pmError").classList.add("hidden");
-    document.getElementById("pmIcon").classList.toggle("danger", !isMark);
     const btn = document.getElementById("pmConfirm");
-    btn.textContent = isMark ? "Mark as Paid" : "Remove Paid";
-    btn.className = "btn " + (isMark ? "btn-primary" : "btn-danger");
+    btn.textContent = btnText;
+    btn.className = "btn " + (danger ? "btn-danger" : "btn-primary");
     const input = document.getElementById("pmAmount");
     if (isMark) {
       input.value = suggested.toFixed(2);
@@ -803,23 +930,38 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   }
   function confirmPaidModal() {
     if (!paidModalState) return;
-    const { mode, m } = paidModalState;
+    const { mode, id } = paidModalState;
     if (mode === "mark") {
-      const amt = Number(String(document.getElementById("pmAmount").value).replace(/[$,\s]/g, ""));
-      if (!isFinite(amt) || amt < 0 || document.getElementById("pmAmount").value.trim() === "") {
+      const raw = document.getElementById("pmAmount").value;
+      const amt = Number(String(raw).replace(/[$,\s]/g, ""));
+      if (!isFinite(amt) || amt < 0 || raw.trim() === "") {
         document.getElementById("pmError").classList.remove("hidden");
         return;
       }
-      paidMonths[m] = { amount: amt, paidOn: formatDate(new Date()) };
+      const paidOn = formatDate(new Date());
+      paidMonths[id] = { amount: amt, paidOn };
+      savePaid(paidMonths);
+      pushState("setPaid", { month: id, amount: amt, paidOn });
+    } else if (mode === "undo") {
+      delete paidMonths[id];
+      savePaid(paidMonths);
+      pushState("clearPaid", { month: id });
+    } else if (mode === "reject") {
+      rejectedCalls[id] = 1;
+      saveRej(rejectedCalls);
+      pushState("setRejected", { key: id, value: 1 });
     } else {
-      delete paidMonths[m];
+      delete rejectedCalls[id];
+      saveRej(rejectedCalls);
+      pushState("setRejected", { key: id, value: 0 });
     }
-    savePaid(paidMonths);
     closePaidModal();
     refreshPaidViews();
   }
   function markPaid(m, suggested) { openPaidModal("mark", m, Number(suggested) || 0); }
   function unmarkPaid(m) { openPaidModal("undo", m, 0); }
+  function rejectCall(k) { openPaidModal("reject", decodeURIComponent(k), 0); }
+  function restoreCall(k) { openPaidModal("restore", decodeURIComponent(k), 0); }
   document.addEventListener("keydown", e => { if (e.key === "Escape" && paidModalState) closePaidModal(); });
   // Jump to Overview with that month's date range so every call + payout is listed
   function viewMonthCalls(m) {
@@ -881,7 +1023,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
     const headers = ["dts", "ani", "state", "call_duration_sec", "payout", "status"];
     const csvRows = rows.map(r => {
       const p = Number(r.payout) || 0;
-      const st = p > 0 ? "Billable" : "Non-billable";
+      const st = isRejected(r) ? "Rejected" : (p > 0 ? "Billable" : "Non-billable");
       const exact = formatTs(r.dts);
       const dts = exact === "—" ? "" : "\t" + exact;
       return [dts, r.ani || "", r.state || "", r.call_duration_sec || "", p.toFixed(2), st]
@@ -1313,6 +1455,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
                 <option value="all">All</option>
                 <option value="billable">Billable</option>
                 <option value="nonbillable">Non-billable</option>
+                <option value="rejected">Rejected</option>
               </select>
             </div>
             <button onclick="clearFilters()" class="btn btn-ghost">Clear</button>
@@ -1335,6 +1478,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
                   <th>Duration</th>
                   <th>Payout</th>
                   <th>Status</th>
+                  <th style="text-align:right">Action</th>
                 </tr>
               </thead>
               <tbody id="ak"></tbody>
@@ -1438,6 +1582,7 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
             <h2 class="font-semibold text-[13.5px] tracking-wide">Monthly Summary</h2>
             <p class="text-[11.5px] mt-1" style="color:var(--muted)">Mark a month as Paid once its invoice payout is received — paid months are left out of Total Payout, call history stays available via View Calls</p>
             <div id="paidSummary" class="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-[12.5px]"></div>
+            <div id="syncStatus" class="text-[11.5px] mt-2"></div>
           </div>
           <div class="table-wrap">
             <table>
@@ -1616,6 +1761,8 @@ tbody tr:hover{background:rgba(61,154,154,.04)}
   window.closePaidModal = closePaidModal;
   window.confirmPaidModal = confirmPaidModal;
   window.unmarkPaid = unmarkPaid;
+  window.rejectCall = rejectCall;
+  window.restoreCall = restoreCall;
   window.viewMonthCalls = viewMonthCalls;
   checkLogin();
 })();
