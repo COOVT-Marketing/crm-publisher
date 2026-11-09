@@ -28,7 +28,7 @@
     comments: ["comments", "comment", "notes"],
     payout: ["payout", "bid", "bid/payout", "amount", "pay"],
     duration: ["duration", "call duration", "talk time", "minutes", "seconds", "call time"],
-    statusOverride: ["status override", "qa status", "status", "billable status", "override status"],
+    statusOverride: ["status override", "qa status", "billable status", "override status", "billable", "status"],
   };
 
   let rawData = [];
@@ -93,12 +93,20 @@
 
   function mapColumns(headers) {
     const map = {};
-    headers.forEach((h, idx) => {
-      const norm = normalizeHeader(h);
+    const norms = headers.map(normalizeHeader);
+    // Pass 1: exact header match (safest)
+    norms.forEach(function (norm, idx) {
       for (const [key, aliases] of Object.entries(COL_MAP)) {
-        if (aliases.some((a) => norm === a || norm.includes(a))) {
-          map[key] = idx;
-          break;
+        if (map[key] == null && aliases.includes(norm)) { map[key] = idx; break; }
+      }
+    });
+    // Pass 2: partial match, only for columns not yet mapped
+    const used = new Set(Object.values(map));
+    norms.forEach(function (norm, idx) {
+      if (used.has(idx)) return;
+      for (const [key, aliases] of Object.entries(COL_MAP)) {
+        if (map[key] == null && aliases.some(function (a) { return norm.includes(a); })) {
+          map[key] = idx; used.add(idx); break;
         }
       }
     });
@@ -185,11 +193,13 @@
   }
 
   function resolveStatus(durationSeconds, override) {
-    const o = (override || "").toString().trim().toLowerCase().replace(/[\s_-]+/g, "");
-    if (o === "billable" || o === "billed") return "billable";
-    if (o === "nonbillable" || o === "nb") return "nonbillable";
-    if (o === "rejected" || o === "reject" || o === "qa" || o === "qarejected") return "rejected";
-    if (o === "pending") return "pending";
+    const o = (override || "").toString().trim().toLowerCase().replace(/[\s_\-?]+/g, "");
+    if (o) {
+      if (/^(non|not|no|nb)/.test(o)) return "nonbillable";
+      if (o.indexOf("reject") !== -1 || o === "qa" || o === "qarejected") return "rejected";
+      if (o.indexOf("pending") !== -1) return "pending";
+      if (o.indexOf("billable") !== -1 || o === "billed" || o === "yes" || o === "y" || o === "true" || o === "1" || o === "approved") return "billable";
+    }
     if (durationSeconds == null || durationSeconds === "" || Number(durationSeconds) <= 0) return "pending";
     const sec = Number(durationSeconds);
     if (isNaN(sec) || sec <= 0) return "pending";
